@@ -1,0 +1,395 @@
+---
+title: "VDJdb validation analytics"
+author: "M.S."
+date: "2025-07-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(ggalluvial)
+library(ggh4x)
+library(patchwork)
+library(stringr)
+library(showtext)
+showtext_auto(T)
+font_add("Helvetica light", "assets/HelveticaLight.ttf")
+font_add("Helvetica", "assets/HelveticaNeueRoman.ttf")
+library(png)
+library(grid)
+```
+
+```{r}
+data <- read_tsv("dump/vdjdb-2025-02-21/vdjdb_full.txt") |>
+  filter(species == "HomoSapiens") |>
+  select(v.alpha, j.alpha, cdr3.alpha, 
+         v.beta, j.beta, cdr3.beta,
+         antigen.epitope,
+         method.identification,
+         method.singlecell,
+         reference.id) |>
+  unique()
+glimpse(data)
+
+data |>
+  filter(is.na(cdr3.beta))
+```
+
+```{r}
+method_variants <- summary(as.factor(data$method.identification))
+tibble(method = names(method_variants), records = method_variants) |>
+  arrange(-records)
+```
+
+```{r}
+summary(as.factor(data$method.singlecell))
+```
+
+```{r}
+data.assay <- data |>
+  mutate(assay = case_when(method.singlecell == "yes" & 
+                             grepl("sort", method.identification) ~ '3.scRNA-seq',
+                           (is.na(method.singlecell) | method.singlecell != "yes") & 
+                             grepl("sort", method.identification) ~ '2.MHC-multimer FACS',
+                           (!is.na(method.identification) & 
+                             !grepl("sort", method.identification)) ~ '1.immunoassay',
+                           T ~ 'other'),
+         chain = case_when(is.na(cdr3.beta) ~ "TRA only",
+                           is.na(cdr3.alpha) ~ "TRB only",
+                           !is.na(cdr3.beta) & !is.na(cdr3.alpha) ~ "paired"))
+
+data.assay.s <- data.assay |>
+  group_by(chain, assay) |>
+  summarise(records = n(), studies = length(unique(reference.id)))
+```
+
+```{r}
+coef = 200
+brks = c(0, 10000, 20000, 30000, 40000, 50000, 60000)
+p1 <- ggplot(data.assay.s, aes(x = assay,
+                         fill = chain)) +
+  geom_bar(aes(y = records), 
+           stat="identity", 
+           color = "black", linewidth = 0.3) +
+  geom_bar(aes(y = -studies*coef), 
+           stat="identity", 
+           color = "black", linewidth = 0.3) +
+  geom_hline(yintercept = 0, 
+             alpha = 0.5,
+             linewidth = 0.3) +
+  scale_y_continuous(
+    # Features of the first axis
+    name = "records",
+    breaks = brks,
+    limits = c(-30000, 45000),
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~.*-coef, name="studies",
+                        breaks = brks * coef,
+                        labels = brks / coef)
+  ) +
+  scale_fill_manual("",
+                    breaks = c("TRA only",
+                               "TRB only", 
+                               "paired"),
+                    values = c("#abd9e9", "#74add1", "#fdae61")) +
+  scale_x_discrete("assay", labels = c("1.IA", "2.FACS", "3.sc", "other")) +
+  theme_classic() +
+  theme(
+    text=element_text(size=12, family="Helvetica light"),
+    axis.line = element_line(color='black', linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.title.y = element_text(hjust=0.8),
+    legend.background = element_blank(),
+    legend.position = c(0.35, 0.97)#,
+    #axis.text.x = element_text(angle=90, vjust=.5, hjust=1)
+    )
+p1
+```
+
+```{r}
+data.slim <- read_tsv("dump/vdjdb-2025-02-21/vdjdb.slim.txt")
+glimpse(data.slim)
+
+data.score <- data.slim |>
+  separate_rows(reference.id, sep = ",") |>
+  group_by(gene, v.segm, j.segm, cdr3) |>
+  mutate(studies = length(unique(reference.id))) |>
+  mutate(studies = ifelse(studies > 2, "3+", as.character(studies))) |>
+  group_by(vdjdb.score, studies) |>
+  summarise(clonotypes = n())
+```
+
+```{r}
+p1a <- ggplot(data.score |>
+         mutate(vdjdb.score = case_when(
+           vdjdb.score == 1 ~ "Low",
+           vdjdb.score == 2 ~ "Med",
+           vdjdb.score == 3 ~ "High",
+           T ~ "N/A"
+         ) |> factor(levels = c("N/A", "Low", "Med", "High"))), 
+       aes(x = studies, y = clonotypes, fill = vdjdb.score)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", linewidth = 0.3) +
+  #facet_wrap(~ vdjdb.score, ncol = 1, strip.position = "left", dir = "v") + 
+  scale_y_log10(breaks = c(1, 10, 100, 1000, 10000, 50000)) +
+  scale_fill_manual("VDJdb\nconf.",
+                    breaks = c("N/A",
+                               "Low", 
+                               "Med",
+                               "High"),
+                    values = c("#f1b6da", "#f7f7f7", "#b8e186", "#7fbc41")) +
+  theme_classic() +
+  theme(
+    text = element_text(size=12,  family="Helvetica light"),
+    axis.line = element_line(color='black', linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    #axis.title.y = element_text(hjust=0.8),
+    legend.background = element_blank(),
+    legend.position = c(0.8, 0.9)#,
+    #axis.text.x = element_text(angle=90, vjust=.5, hjust=1)
+    )
+
+p1a
+```
+
+```{r}
+data.epi <- rbind(data.assay |>
+                        filter(!is.na(cdr3.beta)) |>
+                        group_by(cdr3.beta) |>
+                        mutate(
+                          chain = "TRB",
+                          epitopes = length(unique(antigen.epitope))),
+                      data.assay |>
+                        filter(!is.na(cdr3.alpha)) |>
+                        group_by(cdr3.alpha) |>
+                        mutate(
+                          chain = "TRA",
+                          epitopes = length(unique(antigen.epitope))))|>
+  group_by(assay, chain, epitopes) |>
+  summarise(clonotypes = length(unique(paste(v.alpha, cdr3.alpha, j.alpha,
+                                          v.beta, cdr3.beta, j.beta))))
+
+data.studies <- rbind(data.assay |>
+                        filter(!is.na(cdr3.beta)) |>
+                        group_by(cdr3.beta) |>
+                        mutate(
+                          chain = "TRB",
+                          studies = length(unique(reference.id))),
+                      data.assay |>
+                        filter(!is.na(cdr3.alpha)) |>
+                        group_by(cdr3.alpha) |>
+                        mutate(
+                          chain = "TRA",
+                          studies = length(unique(reference.id))))|>
+  group_by(assay, chain, studies) |>
+  summarise(clonotypes = length(unique(paste(v.alpha, cdr3.alpha, j.alpha,
+                                          v.beta, cdr3.beta, j.beta))))
+```
+
+```{r}
+p2 <- ggplot(data.studies |>
+               filter(assay != "other"), 
+             aes(x = studies, y = clonotypes, color = chain)) +
+  geom_path() +
+  geom_point() +
+  scale_y_log10() +
+  scale_x_continuous(breaks = c(1, 5, 10, 15)) +
+  scale_color_manual("",
+                    breaks = c("TRA", "TRB"),
+                    values = c("#abd9e9", "#74add1")) +
+  facet_wrap(~assay) +
+  theme_classic() +
+  theme(
+    text=element_text(size=12,  family="Helvetica light"),
+    axis.line = element_line(color='black', linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.background = element_blank(),
+    strip.background = element_blank(),
+    legend.position = c(0.90, 0.85))
+p2
+```
+
+```{r}
+p3 <- ggplot(data.epi |>
+               filter(assay != "other"), 
+             aes(x = epitopes, y = clonotypes, color = chain)) +
+  geom_path() +
+  geom_point() +
+  scale_y_log10() +
+  scale_x_continuous(breaks = c(1, 5, 10, 15)) +
+  scale_color_manual(guide = F,
+                    breaks = c("TRA", "TRB"),
+                    values = c("#abd9e9", "#74add1")) +
+  facet_wrap(~assay) +
+  theme_classic() +
+  theme(
+    text=element_text(size=12,  family="Helvetica light"),
+    axis.line = element_line(color='black', linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(size = 0.5, fill = 'white', color = "white"),
+    strip.text = element_text(colour = 'white'))
+p3
+```
+
+```{r}
+data.motifs <- read_tsv("dump/vdjdb-2025-02-21/cluster_members.txt")
+glimpse(data.motifs)
+```
+
+```{r}
+data.motif <- rbind(data.assay |>
+                      filter(!is.na(cdr3.beta)) |>
+                      mutate(in.motif = cdr3.beta %in% data.motifs$cdr3aa) |>
+                      group_by(cdr3.beta) |>
+                      mutate(
+                        chain = "TRB",
+                        epitopes = length(unique(antigen.epitope)),
+                        studies = length(unique(reference.id))),
+                    data.assay |>
+                      filter(!is.na(cdr3.alpha)) |>
+                      mutate(in.motif = cdr3.alpha %in% data.motifs$cdr3aa) |>
+                      group_by(cdr3.alpha) |>
+                      mutate(
+                        chain = "TRA",
+                        epitopes = length(unique(antigen.epitope)),
+                        studies = length(unique(reference.id)))) |>
+  group_by(chain, in.motif, epitopes, studies) |>
+  summarise(clonotypes = length(unique(paste(v.alpha, cdr3.alpha, j.alpha,
+                                          v.beta, cdr3.beta, j.beta)))) |>
+  group_by(chain, in.motif) |>
+  mutate(total_clonotypes = sum(clonotypes)) |>
+  ungroup()
+data.motif
+```
+
+```{r}
+p4 <- ggplot(data.motif |>
+               mutate(in.motif = ifelse(in.motif, "TCRNET+", "orphan")), 
+             aes(x = epitopes, y = studies)) +
+  geom_tile(color = "grey25", size = 0.3, 
+           #binwidth = c(1, 1),
+           aes(fill = clonotypes / total_clonotypes * 100)) +
+  scale_fill_gradient2("%clono-\n types",
+                       trans = "log10",
+                       mid = "#ffffbf", low = "#4575b4", high = "#f46d43",
+                       breaks = c(0.01, 0.1, 1, 10, 50),
+                       midpoint = 0.1) +
+  scale_x_continuous(breaks = c(1, 5, 10, 15)) +
+  scale_y_continuous(breaks = c(1, 5, 10, 15)) +
+  #scale_y_continuous(limits = c(0, 17), breaks = c(1, 5, 10, 15)) +
+  #scale_y_continuous(limits = c(0, 17), breaks = c(1, 5, 10, 15), expand = expansion(0, 1)) +
+  #facet_grid(~ chain + in.motif) +
+  facet_nested( ~ chain + in.motif, nest_line = T) +
+  theme_classic() +
+  theme(
+    #aspect.ratio = 1,
+    text = element_text(size=12,  family="Helvetica light"),
+    axis.line = element_line(color = 'black', linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_blank(),
+    legend.background = element_blank(),
+    legend.position = c(0.97, 0.6)
+    #strip.background = element_rect(size = 0.5)
+    )
+
+p4
+```
+
+```{r}
+data.slim |>
+  filter(antigen.epitope %in% c("YLQPRTFLL", "GLCTLVAML"),
+         complex.id != 0) |>
+  mutate(in.motif = ifelse(cdr3 %in% data.motifs$cdr3aa,
+                           "TCRNET+", "orphan")) |>
+  mutate(vdjdb.score = case_when(
+    vdjdb.score == 1 ~ "Lo",
+    vdjdb.score == 2 ~ "Med",
+    vdjdb.score == 3 ~ "Hi",
+    T ~ "N/A"
+  ) |> factor(levels = c("N/A", "Lo", "Med", "Hi"))) |>
+  separate_rows(reference.id, sep = ",") |>
+  group_by(gene, v.segm, j.segm, cdr3) |>
+  mutate(studies = length(unique(reference.id))) |>
+  mutate(studies = ifelse(studies > 2, "3+", as.character(studies))) |>
+  group_by(antigen.epitope, vdjdb.score, studies, in.motif) |>
+  summarise(clonotypes = length(unique(paste(v.segm, j.segm, cdr3)))) -> data.alluvial
+
+#Matchmessemakers
+tibble(antigen.epitope = c("YLQPRTFLL", "GLCTLVAML", "YLQPRTFLL", "GLCTLVAML"),
+       matchmakers = c("MM+", "MM+", "MM-", "MM-"),
+       mm_frac_ae = c(0.406, 0.694, 1 - 0.406, 1 - 0.694)) |>
+  full_join(tibble(vdjdb.score = c("N/A", "Lo", "Med", "Hi", "N/A", "Lo", "Med", "Hi"),
+                   matchmakers = c("MM+", "MM+", "MM+", "MM+", "MM-", "MM-", "MM-", "MM-"),
+                   mm_frac_vs = c(0.65, 0.45, 0.8, 1.0, 1.0 - 0.65, 1.0 - 0.45, 1.0 - 0.8, 1.0 - 1.0)) |>
+              group_by(matchmakers) |>
+              mutate(mm_frac_vs = mm_frac_vs / sum(mm_frac_vs)),
+            by = "matchmakers", relationship = "many-to-many") -> data.mm
+
+data.alluvial.mm <- full_join(data.alluvial, 
+                              data.mm, 
+                              by = c("antigen.epitope", "vdjdb.score"),
+                              relationship = "many-to-many") |>
+  mutate(frac = clonotypes * mm_frac_ae * mm_frac_vs)
+```
+
+```{r}
+img.vdjdb <- rasterGrob(readPNG("assets/vdjdb.png"), interpolate=T)
+img.mm <- rasterGrob(readPNG("assets/mm.png"), interpolate=T)
+
+p5 <- ggplot(data = data.alluvial.mm |>
+         filter(vdjdb.score != "N/A") |>
+         group_by(antigen.epitope, studies,
+                  vdjdb.score, in.motif, matchmakers) |>
+         summarise(frac = sum(frac)),
+       aes(axis1 = studies,
+           axis2 = antigen.epitope,
+           axis4 = vdjdb.score,
+           axis5 = in.motif,
+           axis6 = matchmakers,
+           y = frac)) +
+  scale_x_discrete("",
+                   limits = c("Studies", "Antigen", "VDJdb score", "Motif", "Validation"), 
+                   expand = c(.5, .05),
+                   position = "bottom") +
+  ylab("") +
+  geom_alluvium(aes(fill = matchmakers), color = NA) +
+  scale_fill_manual(guide = F, values = c("#de77ae", "#7fbc41")) +
+  geom_stratum(color = "black", fill = "white", size = 0.2) +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum)),
+            angle = 90, family="Helvetica light",
+            cex = 3) +
+  annotation_custom(img.vdjdb, xmin=-1.0, xmax=0.75, ymin=-Inf, ymax=Inf) +
+  annotation_custom(img.mm, xmin=5.3, xmax=7, ymin=-Inf, ymax=Inf) +
+  theme_classic() +
+  theme(text = element_text(size=12, family="Helvetica light"),
+        axis.line.y = element_blank(),
+        axis.line.x.bottom = element_line(arrow = arrow(type="closed")),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "bottom")
+
+p5
+```
+
+```{r fig.width=10.5, fig.height=12.5}
+tmp1 <- ((p1 + p1a + (p2 / p3)) + plot_layout(widths = c(1.1, 1.00, 2.93)))
+tmp2 <- tmp1 / p4 / p5
+tmp2 +
+  plot_layout(heights = c(2.5, 1.5, 2)) +
+  plot_annotation(tag_levels = 'a') & 
+  theme(plot.tag = element_text(size = 16, family = "Helvetica")) -> p_full
+
+p_full
+
+ggsave("vdjdb_validation.pdf", p_full, width = 10.5, height = 12.5)
+```
+
+```{r}
+```
