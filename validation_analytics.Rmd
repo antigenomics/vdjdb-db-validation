@@ -388,7 +388,7 @@ tmp2 +
 
 p_full
 
-ggsave("vdjdb_validation.pdf", p_full, width = 10.5, height = 12.5)
+ggsave("figures/fig2.pdf", p_full, width = 10.5, height = 12.5)
 ```
 
 ```{r}
