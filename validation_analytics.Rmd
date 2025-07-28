@@ -455,7 +455,13 @@ data.alluvial.mm.2 |>
 
 data.alluvial.mm.s
 
-dcast(data.alluvial.mm.s, in.motif ~ matchmakers) 
+dcast(data.alluvial.mm.s, in.motif ~ matchmakers) |>
+  column_to_rownames("in.motif") |>
+  fisher.test() -> odds
+
+odds
+odds$p.value
+#174/40/(293/480)
 ```
 
 ```{r fig.width=10.5, fig.height=13}
