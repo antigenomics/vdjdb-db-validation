@@ -320,7 +320,7 @@ data.slim |>
   group_by(antigen.epitope, vdjdb.score, studies, in.motif) |>
   summarise(clonotypes = length(unique(paste(v.segm, j.segm, cdr3)))) -> data.alluvial
 
-#Matchmessemakers
+# Matchmakers estimate
 tibble(antigen.epitope = c("YLQPRTFLL", "GLCTLVAML", "YLQPRTFLL", "GLCTLVAML"),
        matchmakers = c("MM+", "MM+", "MM-", "MM-"),
        mm_frac_ae = c(0.406, 0.694, 1 - 0.406, 1 - 0.694)) |>
@@ -378,17 +378,83 @@ p5 <- ggplot(data = data.alluvial.mm |>
 p5
 ```
 
-```{r fig.width=10.5, fig.height=12.5}
+Use Matchmakers table
+
+```{r}
+data.mm <- read_csv("matchmakers/01_05_2025_TCRvdb.csv")
+data.mm <- rbind(tibble(cdr3 = data.mm$cdr3_alpha_aa,
+                        v.segm = data.mm$TRAV,
+                        padj = data.mm$padj),
+                 tibble(cdr3 = data.mm$cdr3_beta_aa, 
+                        v.segm = data.mm$TRBV,
+                        padj = data.mm$padj)) |>
+  group_by(cdr3) |>
+  summarise(padj = min(padj))
+
+data.slim |>
+  filter(antigen.epitope %in% c("YLQPRTFLL", "GLCTLVAML"),
+         complex.id != 0) |>
+  mutate(in.motif = ifelse(cdr3 %in% data.motifs$cdr3aa,
+                           "TCRNET+", "orphan")) |>
+  mutate(vdjdb.score = case_when(
+    vdjdb.score == 1 ~ "Lo",
+    vdjdb.score == 2 ~ "Med",
+    vdjdb.score == 3 ~ "Hi",
+    T ~ "?"
+  ) |> factor(levels = c("?", "Lo", "Med", "Hi"))) |>
+  separate_rows(reference.id, sep = ",") |>
+  group_by(gene, v.segm, j.segm, cdr3) |>
+  mutate(studies = length(unique(reference.id))) |>
+  mutate(studies = ifelse(studies > 2, "3+", as.character(studies))) |>
+  left_join(data.mm) |>
+  mutate(matchmakers = ifelse(is.na(padj), "?", ifelse(padj < 1e-5, "MM+", "MM-"))) |>
+  group_by(antigen.epitope, vdjdb.score, studies, in.motif, matchmakers) |>
+  summarise(clonotypes = length(unique(paste(v.segm, j.segm, cdr3)))) -> data.alluvial.mm.2
+
+p6 <- ggplot(data = data.alluvial.mm.2,# |>
+        # filter(vdjdb.score != "N/A"),
+       aes(axis1 = studies,
+           axis2 = antigen.epitope,
+           axis4 = vdjdb.score,
+           axis5 = in.motif,
+           axis6 = matchmakers,
+           y = clonotypes)) +
+  scale_x_discrete("",
+                   limits = c("Studies", "Antigen", "VDJdb score", "Motif", "Validation"), 
+                   expand = c(.5, .05),
+                   position = "bottom") +
+  ylab("") +
+  geom_alluvium(aes(fill = matchmakers), color = NA) +
+  scale_fill_manual(guide = F, values = c("grey", "#de77ae", "#7fbc41")) +
+  geom_stratum(color = "black", fill = "white", size = 0.2) +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum)),
+            angle = 90, family="Helvetica light",
+            cex = 3) +
+  annotation_custom(img.vdjdb, xmin=-1.0, xmax=0.75, ymin=-Inf, ymax=Inf) +
+  annotation_custom(img.mm, xmin=5.3, xmax=7, ymin=-Inf, ymax=Inf) +
+  theme_classic() +
+  theme(text = element_text(size=12, family="Helvetica light"),
+        axis.line.y = element_blank(),
+        axis.line.x.bottom = element_line(arrow = arrow(type="closed")),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "bottom")
+
+p6
+```
+
+```{r fig.width=10.5, fig.height=13}
 tmp1 <- ((p1 + p1a + (p2 / p3)) + plot_layout(widths = c(1.1, 1.00, 2.93)))
-tmp2 <- tmp1 / p4 / p5
+tmp2 <- tmp1 / p4 / p6
 tmp2 +
-  plot_layout(heights = c(2.5, 1.5, 2)) +
+  plot_layout(heights = c(2.5, 1.5, 2.3)) +
   plot_annotation(tag_levels = 'a') & 
   theme(plot.tag = element_text(size = 16, family = "Helvetica")) -> p_full
 
 p_full
 
-ggsave("figures/fig2.pdf", p_full, width = 10.5, height = 12.5)
+ggsave("figures/fig2.pdf", p_full, width = 10.5, height = 13)
 ```
 
 ```{r}
