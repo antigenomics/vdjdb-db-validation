@@ -19,6 +19,7 @@ font_add("Helvetica light", "assets/HelveticaLight.ttf")
 font_add("Helvetica", "assets/HelveticaNeueRoman.ttf")
 library(png)
 library(grid)
+library(reshape2)
 ```
 
 ```{r}
@@ -410,7 +411,9 @@ data.slim |>
   mutate(matchmakers = ifelse(is.na(padj), "?", ifelse(padj < 1e-5, "MM+", "MM-"))) |>
   group_by(antigen.epitope, vdjdb.score, studies, in.motif, matchmakers) |>
   summarise(clonotypes = length(unique(paste(v.segm, j.segm, cdr3)))) -> data.alluvial.mm.2
+```
 
+```{r}
 p6 <- ggplot(data = data.alluvial.mm.2,# |>
         # filter(vdjdb.score != "N/A"),
        aes(axis1 = studies,
@@ -442,6 +445,17 @@ p6 <- ggplot(data = data.alluvial.mm.2,# |>
         legend.position = "bottom")
 
 p6
+```
+
+```{r}
+data.alluvial.mm.2 |>
+  filter(matchmakers != "?") |>
+  group_by(in.motif, matchmakers) |>
+  summarise(clonotypes = sum(clonotypes)) -> data.alluvial.mm.s
+
+data.alluvial.mm.s
+
+dcast(data.alluvial.mm.s, in.motif ~ matchmakers) 
 ```
 
 ```{r fig.width=10.5, fig.height=13}
