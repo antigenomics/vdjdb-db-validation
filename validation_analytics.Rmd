@@ -104,7 +104,9 @@ p1 <- ggplot(data.assay.s, aes(x = assay,
     panel.grid.minor = element_blank(),
     axis.title.y = element_text(hjust=0.8),
     legend.background = element_blank(),
-    legend.position = c(0.35, 0.97)#,
+    legend.position = c(0.30, 0.97),
+    legend.text = element_text(size=8),
+    legend.title = element_text(size=10)#,
     #axis.text.x = element_text(angle=90, vjust=.5, hjust=1)
     )
 p1
@@ -149,7 +151,9 @@ p1a <- ggplot(data.score |>
     panel.grid.minor = element_blank(),
     #axis.title.y = element_text(hjust=0.8),
     legend.background = element_blank(),
-    legend.position = c(0.8, 0.9)#,
+    legend.position = c(0.8, 0.9),
+    legend.text = element_text(size=8),
+    legend.title = element_text(size=10)#,
     #axis.text.x = element_text(angle=90, vjust=.5, hjust=1)
     )
 
@@ -210,7 +214,9 @@ p2 <- ggplot(data.studies |>
     panel.grid.minor = element_blank(),
     legend.background = element_blank(),
     strip.background = element_blank(),
-    legend.position = c(0.90, 0.85))
+    legend.position = c(0.90, 0.85),
+    legend.text = element_text(size=8),
+    legend.title = element_text(size=10))
 p2
 ```
 
@@ -295,7 +301,9 @@ p4 <- ggplot(data.motif |>
     panel.grid.minor = element_blank(),
     strip.background = element_blank(),
     legend.background = element_blank(),
-    legend.position = c(0.97, 0.6)
+    legend.position = c(0.97, 0.6),
+    legend.text = element_text(size=8),
+    legend.title = element_text(size=10)
     #strip.background = element_rect(size = 0.5)
     )
 
@@ -468,7 +476,7 @@ odds$p.value
 tmp1 <- ((p1 + p1a + (p2 / p3)) + plot_layout(widths = c(1.1, 1.00, 2.93)))
 tmp2 <- tmp1 / p4 / p6
 tmp2 +
-  plot_layout(heights = c(2.5, 1.5, 2.3)) +
+  plot_layout(heights = c(2.0, 1.5, 3.5)) +
   plot_annotation(tag_levels = 'a') & 
   theme(plot.tag = element_text(size = 16, family = "Helvetica")) -> p_full
 
@@ -478,4 +486,5 @@ ggsave("figures/fig2.pdf", p_full, width = 10.5, height = 13)
 ```
 
 ```{r}
+sessionInfo()
 ```
