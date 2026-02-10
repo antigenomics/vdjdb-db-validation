@@ -2,7 +2,9 @@
 title: "VDJdb validation analytics"
 author: "M.S."
 date: "2025-07-16"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -22,21 +24,123 @@ library(grid)
 library(reshape2)
 ```
 
+### Load data
+
+Load VDJdb table - here we use the version that matches the date of Messemaker et al. preprint release.
+
 ```{r}
 data <- read_tsv("dump/vdjdb-2025-02-21/vdjdb_full.txt") |>
   filter(species == "HomoSapiens") |>
   select(v.alpha, j.alpha, cdr3.alpha, 
          v.beta, j.beta, cdr3.beta,
-         antigen.epitope,
+         antigen.epitope, mhc.a, mhc.b,
          method.identification,
          method.singlecell,
          reference.id) |>
   unique()
 glimpse(data)
-
-data |>
-  filter(is.na(cdr3.beta))
 ```
+
+```{r}
+data |>
+  filter(!is.na(cdr3.alpha)) |>
+  nrow()
+data |>
+  filter(!is.na(cdr3.beta)) |>
+  nrow()
+data |>
+  filter(!is.na(cdr3.alpha), !is.na(cdr3.beta)) |>
+  nrow()
+length(unique(data$antigen.epitope))
+```
+
+Also load TCRNET motifs
+
+```{r}
+data.motifs <- read_tsv("dump/vdjdb-2025-02-21/cluster_members.txt") |>
+  filter(species == "HomoSapiens")
+glimpse(data.motifs)
+```
+
+### Summary of antigen specificity database biases
+
+Compare imbalance in terms of uneven HLA/epitope coverage. Also check how this imbalance drops when going from records to motifs. Note that we can compute and compare Gini indices which would be more statistically sound, however, for the sake of simplicity for the reader we just explore the case of top 1 by coverage vs median.
+
+By MHC, we take only first chain focusing on MHCI, there are obviously far few MHCII
+
+```{r}
+data.s.mhc <- data |>
+  mutate(mhc.a = str_split_fixed(mhc.a, fixed(":"), 2)[,1]) |>
+  group_by(mhc.a) |>
+  summarise(records = n(), publications = length(unique(reference.id))) |>
+  ungroup() |>
+  mutate(fraction.records = records / sum(records) * 100,
+         fraction.publications = publications / sum(publications) * 100) |>
+  arrange(-records)
+
+data.s.mhc |>
+  head()
+
+data.s.mhc |>
+  summarise(records.m = median(records),
+            publications.m = median(publications))
+
+data.motifs.s.mhc <- data.motifs |>
+  mutate(mhc.a = str_split_fixed(mhc.a, fixed(":"), 2)[,1]) |>
+  group_by(gene, mhc.a) |>
+  summarise(records = n(), motifs = length(unique(cid))) |>
+  ungroup() |>
+  mutate(fraction.records = records / sum(records) * 100,
+         fraction.motifs = motifs / sum(motifs) * 100) |>
+  arrange(-records)
+
+data.motifs.s.mhc |>
+  head()
+
+data.motifs.s.mhc |>
+  group_by(gene) |>
+  summarise(records.m = median(records),
+            motifs.m = median(motifs))
+```
+
+By epitope
+
+```{r}
+data.s.ag <- data |>
+  group_by(antigen.epitope) |>
+  summarise(records = n(), publications = length(unique(reference.id))) |>
+  ungroup() |>
+  mutate(fraction.records = records / sum(records) * 100,
+         fraction.publications = publications / sum(publications) * 100) |>
+  arrange(-records)
+
+data.s.ag |>
+  head()
+
+data.s.ag |>
+  summarise(records.m = median(records),
+            publications.m = median(publications))
+
+data.motifs.s.ag <- data.motifs |>
+  group_by(gene, antigen.epitope) |>
+  summarise(records = n(), motifs = length(unique(cid))) |>
+  ungroup() |>
+  mutate(fraction.records = records / sum(records) * 100,
+         fraction.motifs = motifs / sum(motifs) * 100) |>
+  arrange(-records)
+
+data.motifs.s.ag |>
+  head()
+
+data.motifs.s.ag |>
+  group_by(gene) |>
+  summarise(records.m = median(records),
+            motifs.m = median(motifs))
+```
+
+### Overview of VDJdb confidence scoring features
+
+By assay type
 
 ```{r}
 method_variants <- summary(as.factor(data$method.identification))
@@ -112,6 +216,8 @@ p1 <- ggplot(data.assay.s, aes(x = assay,
 p1
 ```
 
+By number of studies
+
 ```{r}
 data.slim <- read_tsv("dump/vdjdb-2025-02-21/vdjdb.slim.txt")
 glimpse(data.slim)
@@ -159,6 +265,8 @@ p1a <- ggplot(data.score |>
 
 p1a
 ```
+
+More detailed view of studies per clonotype by assay
 
 ```{r}
 data.epi <- rbind(data.assay |>
@@ -243,13 +351,10 @@ p3 <- ggplot(data.epi |>
 p3
 ```
 
-```{r}
-data.motifs <- read_tsv("dump/vdjdb-2025-02-21/cluster_members.txt")
-glimpse(data.motifs)
-```
+Number of supporting studies for records that fall into motifs 
 
 ```{r}
-data.motif <- rbind(data.assay |>
+data.motifs.1 <- rbind(data.assay |>
                       filter(!is.na(cdr3.beta)) |>
                       mutate(in.motif = cdr3.beta %in% data.motifs$cdr3aa) |>
                       group_by(cdr3.beta) |>
@@ -271,11 +376,11 @@ data.motif <- rbind(data.assay |>
   group_by(chain, in.motif) |>
   mutate(total_clonotypes = sum(clonotypes)) |>
   ungroup()
-data.motif
+data.motifs.1
 ```
 
 ```{r}
-p4 <- ggplot(data.motif |>
+p4 <- ggplot(data.motifs.1 |>
                mutate(in.motif = ifelse(in.motif, "TCRNET+", "orphan")), 
              aes(x = epitopes, y = studies)) +
   geom_tile(color = "grey25", size = 0.3, 
@@ -309,6 +414,11 @@ p4 <- ggplot(data.motif |>
 
 p4
 ```
+
+### Matchmakers data analysis
+
+First, just estimate using numbers from Messemaker et al. We don't know outcome for each record,
+just use reported validation rates as priors.
 
 ```{r}
 data.slim |>
@@ -387,7 +497,8 @@ p5 <- ggplot(data = data.alluvial.mm |>
 p5
 ```
 
-Use Matchmakers table
+Use Matchmakers table, i.e. outcomes for each record. N.B. The actual table is not
+present in the repo, one should write to the authors to obtain a copy.
 
 ```{r}
 data.mm <- read_csv("matchmakers/01_05_2025_TCRvdb.csv")
@@ -402,7 +513,7 @@ data.mm <- rbind(tibble(cdr3 = data.mm$cdr3_alpha_aa,
 
 data.slim |>
   filter(antigen.epitope %in% c("YLQPRTFLL", "GLCTLVAML"),
-         complex.id != 0) |>
+         complex.id != 0) |> # paired records only
   mutate(in.motif = ifelse(cdr3 %in% data.motifs$cdr3aa,
                            "TCRNET+", "orphan")) |>
   mutate(vdjdb.score = case_when(
@@ -455,6 +566,8 @@ p6 <- ggplot(data = data.alluvial.mm.2,# |>
 p6
 ```
 
+Enrichment test for validated records in TCRNET+
+
 ```{r}
 data.alluvial.mm.2 |>
   filter(matchmakers != "?") |>
@@ -467,9 +580,10 @@ dcast(data.alluvial.mm.s, in.motif ~ matchmakers) |>
   column_to_rownames("in.motif") |>
   fisher.test() -> odds
 
+data.alluvial.mm.s$clonotypes[1] / data.alluvial.mm.s$clonotypes[2] / 
+  (data.alluvial.mm.s$clonotypes[3] / data.alluvial.mm.s$clonotypes[4])
 odds
 odds$p.value
-#174/40/(293/480)
 ```
 
 ```{r fig.width=10.5, fig.height=13}
@@ -483,6 +597,70 @@ tmp2 +
 p_full
 
 ggsave("figures/fig2.pdf", p_full, width = 10.5, height = 13)
+```
+
+### Considering the effect of V allele calling and pairing
+
+Checking for ambiguity in V gene assignment
+
+```{r}
+data |>
+  group_by(cdr3.beta) |>
+  summarise(distinct.v.beta.vdjdb = length(unique(v.beta))) |>
+  mutate(distinct.v.beta.vdjdb = ifelse(distinct.v.beta.vdjdb >= 2,
+                                        "2+", distinct.v.beta.vdjdb)) |>
+  group_by(distinct.v.beta.vdjdb) |>
+  summarise(unique_cdr3b = n())
+
+data |>
+  group_by(cdr3.alpha) |>
+  summarise(distinct.v.alpha.vdjdb = length(unique(v.alpha))) |>
+  mutate(distinct.v.alpha.vdjdb = ifelse(distinct.v.alpha.vdjdb >= 2,
+                                        "2+", distinct.v.alpha.vdjdb)) |>
+  group_by(distinct.v.alpha.vdjdb) |>
+  summarise(unique_cdr3a = n())
+
+data.mm.1 <- read_csv("matchmakers/01_05_2025_TCRvdb.csv") |>
+  mutate(matchmakers = ifelse(is.na(padj), "?", ifelse(padj < 1e-5, "MM+", "MM-"))) |>
+  filter(matchmakers != "?") 
+
+data.mm.1 |>
+  group_by(cdr3.beta = cdr3_beta_aa) |>
+  summarise(distinct.v.beta.mm = length(unique(TRBV_IMGT)) > 1,
+            distinct.mm.outcome = length(unique(matchmakers)) > 1) |>
+  group_by(distinct.v.beta.mm, distinct.mm.outcome) |>
+  summarise(unique_cdr3b = n())
+
+data.mm.1 |>
+  group_by(cdr3.alpha = cdr3_alpha_aa) |>
+  summarise(distinct.v.alpha.mm = length(unique(TRAV_IMGT)) > 1,
+            distinct.mm.outcome = length(unique(matchmakers)) > 1) |>
+  group_by(distinct.v.alpha.mm, distinct.mm.outcome) |>
+  summarise(unique_cdr3a = n())
+```
+
+Distinct validation outcome due to pairing (CDR3 aa level)
+
+```{r}
+read_tsv("dump/vdjdb-2025-02-21/vdjdb_full.txt") |>
+  filter(species == "HomoSapiens",
+         antigen.epitope %in% c("YLQPRTFLL", "GLCTLVAML")) |>
+  summarise(unpaired = sum(is.na(cdr3.beta) | is.na(cdr3.alpha)),
+            paired = sum(!is.na(cdr3.beta) & !is.na(cdr3.alpha)))
+
+data.mm.1 |>
+  group_by(cdr3_beta_aa) |>
+  summarise(distinct.alpha.pair = length(unique(cdr3_alpha_aa)) > 1,
+            distinct.mm.outcome = length(unique(matchmakers)) > 1) |>
+  group_by(distinct.alpha.pair, distinct.mm.outcome) |>
+  summarise(unique_cdr3b = n())
+
+data.mm.1 |>
+  group_by(cdr3_alpha_aa) |>
+  summarise(distinct.beta.pair = length(unique(cdr3_beta_aa)) > 1,
+            distinct.mm.outcome = length(unique(matchmakers)) > 1) |>
+  group_by(distinct.beta.pair, distinct.mm.outcome) |>
+  summarise(unique_cdr3a = n())
 ```
 
 ```{r}

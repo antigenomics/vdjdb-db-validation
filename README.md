@@ -2,7 +2,7 @@
 
 ---
 
-> Work in progress, actual for [Spring challenge release](https://github.com/antigenomics/vdjdb-db/releases/tag/pyvdjdb-2025-02-21)
+> Work in progress, re-analysis of [Spring challenge release](https://github.com/antigenomics/vdjdb-db/releases/tag/pyvdjdb-2025-02-21) showing efficiency and accuracy of in silico VDJdb de-noising
 
 ![Splash](figures/fig2.png)
 
